@@ -501,7 +501,17 @@ class SarvamLLMBackend(VamLLMBackend):
             async with client.stream(
                 "POST", SARVAM_LLM_URL, json=payload, headers=headers
             ) as resp:
-                resp.raise_for_status()
+                # Log Sarvam's response body before raising, so Render logs
+                # reveal why a request was rejected (for example, HTTP 400).
+                if resp.status_code >= 400:
+                    error_body = await resp.aread()
+                    print(
+                        f"Sarvam LLM API error {resp.status_code}: "
+                        f"{error_body.decode('utf-8', errors='replace')}",
+                        flush=True,
+                    )
+                    resp.raise_for_status()
+
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
