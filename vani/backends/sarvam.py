@@ -4,7 +4,7 @@ Sarvam AI backend implementation for Vani.
 Implements VamSTTBackend, VamTTSBackend, and VamLLMBackend using:
   - Sarvam Saaras v3 (WebSocket streaming STT)
   - Sarvam Bulbul v2/v3 (TTS)
-  - Sarvam-M (LLM)
+  - Sarvam 105B Conversations (LLM)
 
 Documentation: https://docs.sarvam.ai
 
@@ -446,17 +446,18 @@ class SarvamTTSBackend(VamTTSBackend):
 
 class SarvamLLMBackend(VamLLMBackend):
     """
-    Sarvam-M LLM backend.
+    Sarvam 105B Conversations LLM backend.
 
-    Sarvam-M supports Indian languages natively and is free per token
-    in the Sarvam API (as of Feb 2026). Uses an OpenAI-compatible
+    Uses Sarvam's supported sarvam-105b-conversations model for multilingual
+    chat. The model can be overridden by passing a different supported model.
+    Uses an OpenAI-compatible
     chat completions endpoint with streaming support.
     """
 
     def __init__(
         self,
         api_key: str,
-        model: str = "sarvam-m",
+        model: str = "sarvam-105b-conversations",
     ) -> None:
         self._api_key = api_key
         self._model = model
@@ -479,7 +480,7 @@ class SarvamLLMBackend(VamLLMBackend):
         max_tokens: int = 512,
         temperature: float = 0.7,
     ) -> AsyncIterator[LLMResult]:
-        """Stream a chat completion from Sarvam-M."""
+        """Stream a chat completion from Sarvam 105B Conversations."""
         payload: dict = {
             "model": self._model,
             "messages": messages,
@@ -501,7 +502,16 @@ class SarvamLLMBackend(VamLLMBackend):
             async with client.stream(
                 "POST", SARVAM_LLM_URL, json=payload, headers=headers
             ) as resp:
-                resp.raise_for_status()
+                # Include Sarvam's response body in logs when the API rejects a request.
+                # This makes invalid model names and request-shape errors easier to diagnose.
+                if resp.status_code >= 400:
+                    error_body = (await resp.aread()).decode("utf-8", errors="replace")
+                    print(
+                        f"Sarvam LLM API error {resp.status_code}: {error_body}",
+                        flush=True,
+                    )
+                    resp.raise_for_status()
+
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
